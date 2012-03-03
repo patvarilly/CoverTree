@@ -271,9 +271,6 @@ class CoverTree(object):
 
             return near_q_ds, far_q_ds
 
-        global indent_level, max_indent_level
-        indent_level = 0
-        max_indent_level = 0
         def construct(p, near_p_ds, far_p_ds, i):
             """Main construction loop.
 
@@ -287,24 +284,12 @@ class CoverTree(object):
             Returns those points in far_p_ds that were not descendants
             of the node associated with p at level i
             """
-            #assert all(d <= 2**i for (k,d) in near_p_ds)
-            #assert all(2**i < d <= 2**(i+1) for (k,d) in far_p_ds)
+            assert all(d <= 2**i for (k,d) in near_p_ds)
+            assert all(2**i < d <= 2**(i+1) for (k,d) in far_p_ds)
             
-            global indent_level, max_indent_level
-            if False: #indent_level > max_indent_level:
-                sys.stderr.write(
-                    "%s construct(%d=%s, near=%s, far=%s, level=%d)\n"
-                    % ('-'*indent_level, p.idx, str(self.data[p.idx]),
-                       str([(k, d) for (k,d) in near_p_ds]),
-                       str([(k, d) for (k,d) in far_p_ds]),
-                       i) )
-                max_indent_level = max(max_indent_level, indent_level)
-                
             if not near_p_ds:
                 return far_p_ds
             else:
-                indent_level += 1
-                
                 nearer_p_ds, not_so_near_p_ds = split_with_dist(2**(i-1),
                                                                 near_p_ds)
                 near_p_ds = construct(p, nearer_p_ds, not_so_near_p_ds, i-1)
@@ -316,15 +301,8 @@ class CoverTree(object):
                 while near_p_ds:
                     q_idx, _ = near_p_ds.pop()
                     q = CoverTree._Node(q_idx, i-1)
-                    print ("%s Created node for pt %d at level %d, child of pt %d at level %d" %
-                           ('-'*indent_level, q_idx, i-1, p.idx, i))
                     self.minlevel = min(i-1, self.minlevel)
 
-                    #print ("%s Before split, p_idx=%d, near_p_ds=%s, far_p_ds=%s" %
-                    #       ('-'*indent_level, p.idx,
-                    #        str([(k, d) for (k,d) in near_p_ds]),
-                    #        str([(k, d) for (k,d) in far_p_ds])))
-                    
                     near_q_ds, far_q_ds = split_without_dist(
                         q_idx, 2**(i-1), near_p_ds)
                     near_q_ds2, far_q_ds2 = split_without_dist(
@@ -332,19 +310,11 @@ class CoverTree(object):
                     near_q_ds.extend(near_q_ds2)
                     far_q_ds.extend(far_q_ds2)
 
-                    #print ("%s After split, p_idx=%d, near_p_ds=%s, far_p_ds=%s" %
-                    #       ('-'*indent_level, p.idx,
-                    #        str([(k, d) for (k,d) in near_p_ds]),
-                    #        str([(k, d) for (k,d) in far_p_ds])))
-                    #print ("%s              q_idx=%d, near_q_ds=%s, far_q_ds=%s" %
-                    #       ('-'*indent_level, q_idx,
-                    #        str([(k, d) for (k,d) in near_q_ds]),
-                    #        str([(k, d) for (k,d) in far_q_ds])))
+                    #assert not (set(i for (i,d) in near_q_ds) &
+                    #            set(i for (i,d) in far_q_ds))
+                    #assert not (set(i for (i,d) in near_q_ds+far_q_ds) &
+                    #            set(i for (i,d) in far_p_ds))
                     
-                    assert not (set(i for (i,d) in near_q_ds) &
-                                set(i for (i,d) in far_q_ds))
-                    assert not (set(i for (i,d) in near_q_ds+far_q_ds) &
-                                set(i for (i,d) in far_p_ds))
                     unused_q_ds = construct(q, near_q_ds, far_q_ds, i-1)
 
                     p.add_child(q, i) # q_(i-1) is a child of p_i
@@ -355,13 +325,7 @@ class CoverTree(object):
                         p.idx, 2**i, unused_q_ds)
                     near_p_ds.extend(new_near_p_ds)
                     far_p_ds.extend(new_far_p_ds)
-                    
-                    #print ("%s Now, p_idx=%d, near_p_ds=%s, far_p_ds=%s" %
-                    #       ('-'*indent_level, p.idx,
-                    #        str([(k, d) for (k,d) in near_p_ds]),
-                    #        str([(k, d) for (k,d) in far_p_ds])))
 
-                indent_level -= 1
                 return far_p_ds
 
         if self.n == 0:
@@ -382,8 +346,10 @@ class CoverTree(object):
             self.maxlevel = int(math.ceil(math.log(maxdist, 2)))+1
             self.minlevel = self.maxlevel
 
-            p = CoverTree._Node(0, self.maxlevel)
-            print "Created root node (pt %d) at level %d" % (0,self.maxlevel)
+            # The slightly strange syntax for "0" here ensures that the
+            # type of node.idx is as numpy.int* for all nodes, including
+            # the root node
+            p = CoverTree._Node(np.int_(0), self.maxlevel)
             unused_p_ds = construct(p, near_p_ds, far_p_ds, self.maxlevel)
             assert not unused_p_ds
             self.root = p
@@ -452,23 +418,31 @@ class CoverTree(object):
         if k is None:
             def bound(Q_p_ds):
                 return distance_upper_bound
-        else:
+        elif k == 1:
             def bound(Q_p_ds):
                 try:
                     return min(distance_upper_bound,
-                               heapq.nsmallest(k, Q_p_ds,
-                                               key=operator.itemgetter(1)
-                                               )[-1][1])
+                               min(Q_p_ds, key=operator.itemgetter(1))[1])
                 except ValueError:
                     return distance_upper_bound
+        else:
+            def bound(Q_p_ds):
+                ksmallest = heapq.nsmallest(
+                    k, ((q,d) for (q,d) in Q_p_ds if d < distance_upper_bound),
+                    key=operator.itemgetter(1))
+                if ksmallest:
+                    return ksmallest[-1][1]
+                else:
+                    return distance_upper_bound
 
-        raw_result = self._raw_query(p, bound)
+        raw_result = [(d,q.idx) for (q,d) in self._raw_query(p, bound)
+                      if d < distance_upper_bound]
         if k:
             result = heapq.nsmallest(k, raw_result,
-                                     key=operator.itemgetter(1))
+                                     key=operator.itemgetter(0))
         else:
-            result = sorted(raw_result, key=operator.itemgetter(1))
-        return [(d, q.idx) for (q, d) in result]
+            result = sorted(raw_result, key=operator.itemgetter(0))
+        return result
         
 
     def query(self, x, k=1, eps=0, distance_upper_bound=np.inf):

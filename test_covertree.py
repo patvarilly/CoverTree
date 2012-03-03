@@ -11,7 +11,20 @@ from numpy.testing import assert_equal, assert_array_equal, assert_almost_equal,
 
 import numpy as np
 from covertree import CoverTree, distance_matrix
-from scipy.spatial.distance import sqeuclidean, cityblock, chebyshev
+from scipy.spatial.distance import euclidean, sqeuclidean, cityblock, chebyshev
+
+def vectorize_distance(distance, pt_shape):
+    def calc(x):
+        x = np.asarray(x)
+        if pt_shape:
+            retshape = np.shape(x)[:-len(pt_shape)]
+        else:
+            retshape = np.shape(x)
+        dd = np.empty(retshape)
+        for c in np.ndindex(retshape):
+            dd[c] = distance(x[c])
+        return dd
+    return calc
 
 class ConsistencyTests:
     def test_nearest(self):
@@ -19,8 +32,9 @@ class ConsistencyTests:
         d, i = self.covertree.query(x, 1)
         assert_almost_equal(d, self.distance(x,self.data[i]))
         eps = 1e-8
-        distance_to_x = np.vectorize(lambda y: self.distance(x,y))
-        assert_(np.all(distance_to_x(self.data) > d**2-eps))
+        distance_to_x = vectorize_distance(lambda y: self.distance(x,y),
+                                           self.covertree.pt_shape)
+        assert_(np.all(distance_to_x(self.data) > d-eps))
 
     def test_m_nearest(self):
         x = self.x
@@ -30,13 +44,15 @@ class ConsistencyTests:
         i = ii[np.argmax(dd)]
         assert_almost_equal(d, self.distance(x,self.data[i]))
         eps = 1e-8
-        distance_to_x = np.vectorize(lambda y: self.distance(x,y))
-        assert_equal(np.sum(distance_to_x(self.data) < d**2+eps), m)
+        distance_to_x = vectorize_distance(lambda y: self.distance(x,y),
+                                           self.covertree.pt_shape)
+        assert_equal(np.sum(distance_to_x(self.data) < d+eps), m)
 
     def test_points_near(self):
         x = self.x
         d = self.d
-        dd, ii = self.covertree.query(x, k=self.covertree.n, distance_upper_bound=d)
+        dd, ii = self.covertree.query(x, k=self.covertree.n,
+                                      distance_upper_bound=d)
         eps = 1e-8
         hits = 0
         for near_d, near_i in zip(dd,ii):
@@ -46,8 +62,9 @@ class ConsistencyTests:
             assert_almost_equal(near_d, self.distance(x, self.data[near_i]))
             assert_(near_d < d+eps,
                     "near_d=%g should be less than %g" % (near_d, d))
-        distance_to_x = np.vectorize(lambda y: self.distance(x,y))
-        assert_equal(np.sum(distance_to_x(self.data) < d**2+eps), hits)
+        distance_to_x = vectorize_distance(lambda y: self.distance(x,y),
+                                           self.covertree.pt_shape)
+        assert_equal(np.sum(distance_to_x(self.data) < d+eps), hits)
 
     def test_approx(self):
         x = self.x
@@ -63,7 +80,7 @@ class test_random(ConsistencyTests):
         self.n = 100
         self.m = 4
         self.data = np.random.randn(self.n, self.m)
-        self.distance = sqeuclidean
+        self.distance = euclidean
         self.covertree = CoverTree(self.data, self.distance)#leafsize=2)
         self.x = np.random.randn(self.m)
         self.d = 0.2
@@ -84,10 +101,10 @@ class test_small(ConsistencyTests):
                               [1,0,1],
                               [1,1,0],
                               [1,1,1]])
-        self.distance = sqeuclidean
+        self.distance = euclidean
         self.covertree = CoverTree(self.data, self.distance)
         self.n = self.covertree.n
-        self.m = self.covertree.m
+        self.m = np.shape(self.data)[-1]
         self.x = np.random.randn(3)
         self.d = 0.5
         self.k = 4
@@ -134,7 +151,7 @@ class test_vectorization:
                               [1,0,1],
                               [1,1,0],
                               [1,1,1]])
-        self.distance = sqeuclidean
+        self.distance = euclidean
         self.covertree = CoverTree(self.data,self.distance)
 
     def test_single_query(self):
@@ -241,7 +258,7 @@ class ball_consistency:
 
 class test_random_ball(ball_consistency):
 
-    def setUp(self,distance=sqeuclidean):
+    def setUp(self,distance=euclidean):
         n = 100
         m = 4
         self.data = np.random.randn(n,m)
@@ -277,7 +294,7 @@ def test_random_ball_vectorized():
 
     n = 20
     m = 5
-    T = CoverTree(np.random.randn(n,m), distance=sqeuclidean)
+    T = CoverTree(np.random.randn(n,m), distance=euclidean)
 
     r = T.query_ball_point(np.random.randn(2,3,m),1)
     assert_equal(r.shape,(2,3))
@@ -301,7 +318,7 @@ class two_trees_consistency:
 
 class test_two_random_trees(two_trees_consistency):
 
-    def setUp(self, distance=sqeuclidean):
+    def setUp(self, distance=euclidean):
         n = 50
         m = 4
         self.data1 = np.random.randn(n,m)
@@ -325,7 +342,7 @@ class test_two_random_trees_linf(test_two_random_trees):
 
 
 def test_distance_l2():
-    assert_almost_equal(sqeuclidean([0,0],[1,1]),2)
+    assert_almost_equal(euclidean([0,0],[1,1]),np.sqrt(2.0))
 def test_distance_l1():
     assert_almost_equal(cityblock([0,0],[1,1]),2)
 def test_distance_linf():
@@ -340,8 +357,8 @@ class test_count_neighbors:
     def setUp(self):
         n = 50
         m = 2
-        self.T1 = CoverTree(np.random.randn(n,m),distance=sqeuclidean)#leafsize=2)
-        self.T2 = CoverTree(np.random.randn(n,m),distance=sqeuclidean)#,leafsize=2)
+        self.T1 = CoverTree(np.random.randn(n,m),distance=euclidean)#leafsize=2)
+        self.T2 = CoverTree(np.random.randn(n,m),distance=euclidean)#,leafsize=2)
 
     def test_one_radius(self):
         r = 0.2
@@ -364,7 +381,7 @@ class test_sparse_distance_matrix:
     def setUp(self):
         n = 50
         m = 4
-        self.distance = sqeuclidean
+        self.distance = euclidean
         self.T1 = CoverTree(np.random.randn(n,m),self.distance)#,leafsize=2)
         self.T2 = CoverTree(np.random.randn(n,m),self.distance)#,leafsize=2)
         self.r = 0.3
@@ -387,7 +404,7 @@ def test_distance_matrix():
     k = 4
     xs = np.random.randn(m,k)
     ys = np.random.randn(n,k)
-    distance = sqeuclidean
+    distance = euclidean
     ds = distance_matrix(xs,ys,distance)
     assert_equal(ds.shape, (m,n))
     for i in range(m):
@@ -418,7 +435,7 @@ def test_onetree_query():
     n = 100
     k = 4
     points = np.random.randn(n,k)
-    distance = sqeuclidean
+    distance = euclidean
     T = CoverTree(points,distance)
     yield check_onetree_query, T, 0.1
 
@@ -432,7 +449,7 @@ def test_onetree_query():
     yield check_onetree_query, T, 1e-6
 
 def test_query_pairs_single_node():
-    distance = sqeuclidean
+    distance = euclidean
     tree = CoverTree([[0, 1]],distance)
     assert_equal(tree.query_pairs(0.5), set())
 
@@ -441,7 +458,7 @@ def test_ball_point_ints():
     """Description from test_kdtree.py: Regression test for #1373."""
     x, y = np.mgrid[0:4, 0:4]
     points = zip(x.ravel(), y.ravel())
-    distance = sqeuclidean
+    distance = euclidean
     tree = CoverTree(points,distance)
     assert_equal([4, 8, 9, 12], tree.query_ball_point((2, 0), 1))
     points = np.asarray(points, dtype=np.float)
