@@ -460,10 +460,12 @@ def test_ball_point_ints():
     points = zip(x.ravel(), y.ravel())
     distance = euclidean
     tree = CoverTree(points,distance)
-    assert_equal([4, 8, 9, 12], tree.query_ball_point((2, 0), 1))
+    assert_equal(sorted([4, 8, 9, 12]),
+                 sorted(tree.query_ball_point((2, 0), 1)))
     points = np.asarray(points, dtype=np.float)
     tree = CoverTree(points,distance)
-    assert_equal([4, 8, 9, 12], tree.query_ball_point((2, 0), 1))
+    assert_equal(sorted([4, 8, 9, 12]),
+                 sorted(tree.query_ball_point((2, 0), 1)))
 
 
 if __name__=="__main__":

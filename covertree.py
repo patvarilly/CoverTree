@@ -428,7 +428,7 @@ class CoverTree(object):
         else:
             def bound(Q_p_ds):
                 ksmallest = heapq.nsmallest(
-                    k, ((q,d) for (q,d) in Q_p_ds if d < distance_upper_bound),
+                    k, ((q,d) for (q,d) in Q_p_ds if d <= distance_upper_bound),
                     key=operator.itemgetter(1))
                 if ksmallest:
                     return ksmallest[-1][1]
@@ -436,7 +436,7 @@ class CoverTree(object):
                     return distance_upper_bound
 
         raw_result = [(d,q.idx) for (q,d) in self._raw_query(p, bound)
-                      if d < distance_upper_bound]
+                      if d <= distance_upper_bound]
         if k:
             result = heapq.nsmallest(k, raw_result,
                                      key=operator.itemgetter(0))
@@ -570,7 +570,9 @@ class CoverTree(object):
         using query_ball_tree.
         
         """
-        raise NotImplementedError
+        # TODO: There's probably a more efficient way to do this
+        dd, ii = self.query(x, k=None, eps=eps, distance_upper_bound=r)
+        return ii
     
     def query_ball_tree(self, other, r, eps=0):
         """
