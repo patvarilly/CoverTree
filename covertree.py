@@ -31,6 +31,7 @@ import itertools
 import sys
 from heapq import heappush, heappop
 import random
+import scipy.sparse
 
 __all__ = ['CoverTree', 'distance_matrix']
 
@@ -831,7 +832,40 @@ class CoverTree(object):
             Sparse matrix representing the results in "dictionary of keys"
             format.
         """
-        raise NotImplementedError
+        result = scipy.sparse.dok_matrix((self.n,other.n))
+        
+        def traverse(node1, node2):
+            d_1_2 = self.distance(self.data[node1.ctr_idx],
+                                  other.data[node2.ctr_idx])
+            min_distance_1_2 = d_1_2 - node1.radius - node2.radius
+            if min_distance_1_2 > max_distance:
+                return
+            elif isinstance(node1, CoverTree._LeafNode):
+                if isinstance(node2, CoverTree._LeafNode):
+                    for i in node1.idx:
+                        for j in node2.idx:
+                            d = self.distance(self.data[i],
+                                              other.data[j])
+                            if d <= max_distance:
+                                result[i,j] = d
+                else:
+                    for child2 in node2.children:
+                        traverse(node1, child2)
+            elif isinstance(node2, CoverTree._LeafNode):
+                for child1 in node1.children:
+                    traverse(child1, node2)
+            else:
+                # Break down bigger node
+                if node1.radius > node2.radius:
+                    for child1 in node1.children:
+                        traverse(child1, node2)
+                else:
+                    for child2 in node2.children:
+                        traverse(node1, child2)
+                
+        traverse(self.root, other.root)
+
+        return result
 
 def distance_matrix(x,y,distance):
     """
