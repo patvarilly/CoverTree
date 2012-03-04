@@ -156,17 +156,18 @@ class CoverTree(object):
         # children are within _d[level] of data[ctr_idx]
         # descendants are within _D[level]
         # ctr_idx is one integer
-        def __init__(self, ctr_idx, level, radius):
+        def __init__(self, ctr_idx, level, radius, children):
             self.ctr_idx = ctr_idx
             self.level = level
             self.radius = radius
-            self.children = []
+            self.children = children
+            self.num_children = sum(c.num_children for c in children)
 
         def __repr__(self):
             return ("<_InnerNode: ctr_idx=%d, level=%d (radius=%f), "
-                    "len(children)=%d>" %
+                    "len(children)=%d, num_children=%d>" %
                     (self.ctr_idx, self.level,
-                     self.radius, len(self.children)))
+                     self.radius, len(self.children), self.num_children))
         
     class _LeafNode(_Node):
         # idx is an array of integers
@@ -174,6 +175,7 @@ class CoverTree(object):
             self.idx = idx
             self.ctr_idx = ctr_idx
             self.radius = radius
+            self.num_children = len(idx)
 
         def __repr__(self):
             return('_LeafNode(idx=%s, ctr_idx=%d, radius=%f)' %
@@ -327,8 +329,7 @@ class CoverTree(object):
                     #
                     # Make new children of p at level i from each one until
                     # none remain
-                    p_i = CoverTree._InnerNode(p_idx, i, heir_d[i])
-                    p_i.children += [p_im1]
+                    children = [p_im1]
                     while near_p_ds:
                         q_idx, _ = random.choice(near_p_ds)
 
@@ -347,7 +348,7 @@ class CoverTree(object):
                         q_im1, unused_q_ds = construct(
                             q_idx, near_q_ds, far_q_ds, i-1)
                         
-                        p_i.children += [q_im1]
+                        children.append(q_im1)
                         
                         # TODO: Figure out an effective way of not having
                         # to recalculate distances to p
@@ -356,6 +357,7 @@ class CoverTree(object):
                         near_p_ds += new_near_p_ds
                         far_p_ds += new_far_p_ds
 
+                    p_i = CoverTree._InnerNode(p_idx, i, heir_d[i], children)
                     #print("Creating level %d inner node with %d children, "
                     #      "remaining points = %s" %
                     #      (i, len(p_i.children), str(far_p_ds)))
@@ -810,7 +812,53 @@ class CoverTree(object):
             The number of pairs. Note that this is internally stored in a
             numpy int, and so may overflow if very large (two billion).
         """
-        raise NotImplementedError
+
+        def traverse(node1, node2, idx):
+            d_1_2 = self.distance(self.data[node1.ctr_idx],
+                                  other.data[node2.ctr_idx])
+            min_r = d_1_2 - node1.radius - node2.radius
+            max_r = d_1_2 + node1.radius + node2.radius
+            c_greater = r[idx] > max_r
+            result[idx[c_greater]] += node1.num_children * node2.num_children
+            idx = idx[(min_r <= r[idx]) & (r[idx] <= max_r)]
+            if len(idx)==0:
+                return
+
+            if isinstance(node1,CoverTree._LeafNode):
+                if isinstance(node2,CoverTree._LeafNode):
+                    ds = [self.distance(self.data[i], other.data[j])
+                          for i in node1.idx
+                          for j in node2.idx]
+                    ds.sort()
+                    result[idx] += np.searchsorted(ds, r[idx], side='right')
+                else:
+                    for child2 in node2.children:
+                        traverse(node1, child2, idx)
+            elif isinstance(node2, CoverTree._LeafNode):
+                for child1 in node1.children:
+                    traverse(child1, node2, idx)
+            else:
+                # Break down bigger node
+                if node1.radius > node2.radius:
+                    for child1 in node1.children:
+                        traverse(child1, node2, idx)
+                else:
+                    for child2 in node2.children:
+                        traverse(node1, child2, idx)
+
+        if np.shape(r) == ():
+            r = np.array([r])
+            result = np.zeros(1,dtype=int)
+            traverse(self.root, other.root, np.arange(1))
+            return result[0]
+        elif len(np.shape(r))==1:
+            r = np.asarray(r)
+            n, = r.shape
+            result = np.zeros(n,dtype=int)
+            traverse(self.root, other.root, np.arange(n))
+            return result
+        else:
+            raise ValueError("r must be either a single value or a one-dimensional array of values")
 
     def sparse_distance_matrix(self, other, max_distance):
         """
