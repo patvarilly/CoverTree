@@ -255,7 +255,7 @@ class ball_consistency:
         c[l] = False
         for i in xrange(self.T.n):
             if c[i]:
-                assert_(self.distance(self.data[c[i]], self.x) >=
+                assert_(self.distance(self.data[i], self.x) >=
                         self.d/(1.+self.eps))
 
 class test_random_ball(ball_consistency):

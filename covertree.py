@@ -663,9 +663,13 @@ class CoverTree(object):
                 for child1 in node1.children:
                     traverse_checking(child1, node2)
             else:
-                for child1 in node1.children:
+                # Break down bigger node
+                if node1.radius > node2.radius:
+                    for child1 in node1.children:
+                        traverse_checking(child1, node2)
+                else:
                     for child2 in node2.children:
-                        traverse_checking(child1, child2)
+                        traverse_checking(node1, child2)
 
         def traverse_no_checking(node1, node2):
             if isinstance(node1, CoverTree._LeafNode):
@@ -702,7 +706,83 @@ class CoverTree(object):
             set of pairs (i,j), i<j, for which the corresponding positions
             are close.
         """
-        raise NotImplementedError
+        results = set()
+        visited = set()
+        def test_set_visited(node1, node2):
+            i, j = sorted((id(node1),id(node2)))
+            if (i,j) in visited:
+                return True
+            else:
+                visited.add((i,j))
+                return False
+        def traverse_checking(node1, node2):
+            if test_set_visited(node1, node2):
+                return
+
+            if id(node2)<id(node1):
+                # This node pair will be visited in the other order
+                #return
+                pass
+
+            if isinstance(node1, CoverTree._LeafNode):
+                if isinstance(node2, CoverTree._LeafNode):
+                    for i in node1.idx:
+                        for j in node2.idx:
+                            if self.distance(self.data[i], self.data[j]) <= r:
+                                if i < j:
+                                    results.add((i,j))
+                                elif j < i:
+                                    results.add((j,i))
+                else:
+                    for child2 in node2.children:
+                        traverse_checking(node1, child2)
+            elif isinstance(node2, CoverTree._LeafNode):
+                for child1 in node1.children:
+                    traverse_checking(child1, node2)
+            else:
+                d_1_2 = self.distance(self.data[node1.ctr_idx],
+                                      self.data[node2.ctr_idx])
+                min_distance = d_1_2 - node1.radius - node2.radius
+                max_distance = d_1_2 + node1.radius + node2.radius
+                if min_distance > r/(1.+eps):
+                    return
+                elif max_distance < r*(1.+eps):
+                    for child1 in node1.children:
+                        traverse_no_checking(child1, node2)
+                else:
+                    # Break down bigger node
+                    if node1.radius > node2.radius:
+                        for child1 in node1.children:
+                            traverse_checking(child1, node2)
+                    else:
+                        for child2 in node2.children:
+                            traverse_checking(node1, child2)
+
+        def traverse_no_checking(node1, node2):
+            if test_set_visited(node1, node2):
+                return
+
+            if id(node2)<id(node1):
+                # This node pair will be visited in the other order
+                #return
+                pass
+            if isinstance(node1, CoverTree._LeafNode):
+                if isinstance(node2, CoverTree._LeafNode):
+                    for i in node1.idx:
+                        for j in node2.idx:
+                            if i<j:
+                                results.add((i,j))
+                            elif j<i:
+                                results.add((j,i))
+                else:
+                    for child2 in node2.children:
+                        traverse_no_checking(node1, child2)
+            else:
+                for child1 in node1.children:
+                    traverse_no_checking(child1, node2)
+
+        traverse_checking(self.root, self.root)
+        return results
     
     def count_neighbors(self, other, r):
         """
