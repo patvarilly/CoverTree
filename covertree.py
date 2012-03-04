@@ -541,6 +541,33 @@ class CoverTree(object):
             else:
                 raise ValueError("Requested %s nearest neighbors; acceptable numbers are integers greater than or equal to one, or None")
     
+    def _query_ball_point(self, x, r, eps=0):
+        def traverse_checking(node):
+            d_x_node = self.distance(x, self.data[node.ctr_idx])
+            min_distance = max(0.0, d_x_node - node.radius)
+            max_distance = d_x_node + node.radius
+            if min_distance > r / (1. + eps):
+                return []
+            elif max_distance < r * (1. + eps):
+                return traverse_no_checking(node)
+            elif isinstance(node, CoverTree._LeafNode):
+                return list(i for i in node.idx
+                            if self.distance(x, self.data[i]) <= r)
+            else:
+                return list(itertools.chain.from_iterable(
+                        traverse_checking(child)
+                        for child in node.children))
+
+        def traverse_no_checking(node):
+            if isinstance(node, CoverTree._LeafNode):
+                return node.idx
+            else:
+                return list(itertools.chain.from_iterable(
+                        traverse_no_checking(child)
+                        for child in node.children))
+
+        return traverse_checking(self.root)
+
     def query_ball_point(self, x, r, eps=0):
         """Find all points within distance r of point(s) x.
 
@@ -571,9 +598,24 @@ class CoverTree(object):
         using query_ball_tree.
         
         """
-        # TODO: There's probably a more efficient way to do this
-        dd, ii = self.query(x, k=None, eps=eps, distance_upper_bound=r)
-        return ii
+        x = np.asarray(x)
+        if self.pt_shape and x.shape[-len(self.pt_shape):] != self.pt_shape:
+            raise ValueError("Searching for a point of shape %s in a " \
+                             "CoverTree with points of shape %s" %
+                             (x.shape[-len(self.pt_shape):],
+                              self.pt_shape))
+                             
+        if len(x.shape) == 1:
+            return self._query_ball_point(x, r, eps)
+        else:
+            if self.pt_shape:
+                retshape = x.shape[:-len(self.pt_shape)]
+            else:
+                retshape = x.shape
+            result = np.empty(retshape, dtype=np.object)
+            for c in np.ndindex(retshape):
+                result[c] = self._query_ball_point(x[c], r, eps=eps)
+            return result
     
     def query_ball_tree(self, other, r, eps=0):
         """
