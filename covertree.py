@@ -640,7 +640,47 @@ class CoverTree(object):
             For each element self.data[i] of this tree, results[i] is a list
             of the indices of its neighbors in other.data.
         """
-        raise NotImplementedError
+        results = [[] for i in range(self.n)]
+        def traverse_checking(node1, node2):
+            d = self.distance(self.data[node1.ctr_idx],
+                              other.data[node2.ctr_idx])
+            min_distance = max(0.0, d - node1.radius - node2.radius)
+            max_distance = d + node1.radius + node2.radius
+            if min_distance > r/(1.+eps):
+                return
+            elif max_distance < r*(1.+eps):
+                traverse_no_checking(node1, node2)
+            elif isinstance(node1, CoverTree._LeafNode):
+                if isinstance(node2, CoverTree._LeafNode):
+                    for i in node1.idx:
+                        results[i] += list(
+                            j for j in node2.idx
+                            if self.distance(other.data[j], self.data[i]) <= r)
+                else:
+                    for child2 in node2.children:
+                        traverse_checking(node1, child2)
+            elif isinstance(node2, CoverTree._LeafNode):
+                for child1 in node1.children:
+                    traverse_checking(child1, node2)
+            else:
+                for child1 in node1.children:
+                    for child2 in node2.children:
+                        traverse_checking(child1, child2)
+
+        def traverse_no_checking(node1, node2):
+            if isinstance(node1, CoverTree._LeafNode):
+                if isinstance(node2, CoverTree._LeafNode):
+                    for i in node1.idx:
+                        results[i] += node2.idx
+                else:
+                    for child2 in node2.children:
+                        traverse_no_checking(node1, child2)
+            else:
+                for child1 in node1.children:
+                    traverse_checking(child1, node2)
+
+        traverse_checking(self.root, other.root)
+        return results
 
     def query_pairs(self, r, eps=0):
         """

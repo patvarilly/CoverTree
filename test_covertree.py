@@ -11,7 +11,7 @@ from numpy.testing import assert_equal, assert_array_equal, assert_almost_equal,
 
 import numpy as np
 from covertree import CoverTree, distance_matrix
-from scipy.spatial.distance import euclidean, sqeuclidean, cityblock, chebyshev
+from scipy.spatial.distance import euclidean, cityblock, chebyshev
 
 def vectorize_distance(distance, pt_shape):
     def calc(x):
@@ -253,8 +253,10 @@ class ball_consistency:
         c = np.ones(self.T.n, dtype=np.bool)
         l = self.T.query_ball_point(self.x, self.d, eps=self.eps)
         c[l] = False
-        assert_(np.all(self.distance(self.data[c], self.x) >=
-                       self.d/(1.+self.eps)))
+        for i in xrange(self.T.n):
+            if c[i]:
+                assert_(self.distance(self.data[c[i]], self.x) >=
+                        self.d/(1.+self.eps))
 
 class test_random_ball(ball_consistency):
 
@@ -313,8 +315,10 @@ class two_trees_consistency:
         for i, l in enumerate(r):
             c = np.ones(self.T2.n,dtype=np.bool)
             c[l] = False
-            assert_(np.all(self.distance(self.data2[c],self.data1[i]) >=
-                           self.d/(1.+self.eps)))
+            for j in xrange(self.T2.n):
+                if c[j]:
+                    assert_(self.distance(self.data2[j],self.data1[i]) >=
+                            self.d/(1.+self.eps))
 
 class test_two_random_trees(two_trees_consistency):
 
