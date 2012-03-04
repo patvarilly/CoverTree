@@ -21,13 +21,16 @@
 # I have rewritten the code to mimic the API of Anne M. Archibald's
 # scipy.spatial.kdtree
 
+from __future__ import division
+
 import numpy as np
 from collections import defaultdict
 import operator
 import math
 import itertools
 import sys
-import heapq
+from heapq import heappush, heappop
+import random
 
 __all__ = ['CoverTree', 'distance_matrix']
 
@@ -38,11 +41,40 @@ class CoverTree(object):
     TODO: Write more
     """
 
-    # Sentinel values for the C_infty and C_-infty levels
-    _HIGHEST_LEVEL = 2**30-1
-    _LOWEST_LEVEL = -2**30
+    # A node at level i can have immediate children within a distance d_i =
+    # child_d[i] and descendants within a distance D_i = heir_d[i].
+    # Strictly speaking, the only requirement for using a cover tree is that
+    #
+    #    D_i = d_i + d_(i-1) + ...
+    #
+    # be defined, but the construction algorithm used here (batch
+    # construction in Beygelzimer, Kakade and Langford) only works when
+    #
+    #    ... d_(i-1) < d_i < d_(i+1) < ...
+    #
+    # A convenient choice is d_i = b**i, with b > 1, whereby
+    # D_i = b**i + b**(i-1) + ... = (b/(b-1)) * d_i
+    #
+    # Below, I implement these two fundamental scales as a lazy dictionary
+    class _lazy_child_dist(dict):
+        def __init__(self, base, *a, **kw):
+            dict.__init__(self, *a, **kw)
+            self.b = base
+            
+        def __missing__(self, i):
+            self[i] = value = self.b ** i
+            return value
 
-    def __init__(self, data, distance):
+    class _lazy_heir_dist(dict):
+        def __init__(self, base, *a, **kw):
+            dict.__init__(self, *a, **kw)
+            self.b = base
+            
+        def __missing__(self, i):
+            self[i] = value = self.b ** (i+1) / (self.b - 1)
+            return value
+
+    def __init__(self, data, distance, leafsize=10, base=2):
         """
         Construct a cover tree.
 
@@ -62,6 +94,12 @@ class CoverTree(object):
             * d(p,q) = d(q,p)
             * q(p,q) <= d(p,r) + d(r,q) for all r
             'Points' here means elements of the data array.
+        leafsize : positive int
+            The number of points at which the algorithm switches over to
+            brute-force.
+        base : positive int
+            The factor by which the radius of nodes at level i-1 shrinks
+            with respect to nodes at level i
 
         Examples
         --------
@@ -88,6 +126,13 @@ class CoverTree(object):
         self.n = self.data.shape[0]
         self.pt_shape = self.data.shape[1:]
         self.distance = distance
+        self.leafsize = leafsize
+        if self.leafsize < 1:
+            raise ValueError("leafsize must be at least 1")
+
+        self._child_d = CoverTree._lazy_child_dist(base)
+        self._heir_d = CoverTree._lazy_heir_dist(base)
+
         self.tree = self._build()
 
     class _Node(object):
@@ -99,102 +144,59 @@ class CoverTree(object):
         in level i-1.  If a point p first appears at level i, then
         a node corresponding to p appears at every lower level.
 
-        In the explicit representation used here, each point p is associated
-        with a single node at the highest level i.  Instead of having a
-        single list of children, each node keeps lists of children of the
-        implicit nodes associated with p at all levels j < i.
+        In the explicit representation used here, we only keep track of the
+        nodes p_i that have nontrivial children.  Furthermore, we also
+        use leaf nodes (like KDTree) to group together small numbers of
+        nearby points at the lower levels.
         """
-        def __init__(self, idx, highest_level):
-            """Create an explicit node for the point p = tree.data[idx] that
-            first appears at level highest_level."""
-            self.idx = idx
-            self.highest_level = highest_level
-            # dict mapping level and children
-            self.children = defaultdict(list)
-            self.highest_parent = None
+        pass
 
-        def __str__(self):
-            return ('<id=%d, idx=%d, highest_level=%d, highest_parent=%d, children=...>'
-                    % (id(self), self.idx, self.highest_level,
-                       id(self.highest_parent)))
+    class _InnerNode(_Node):
+        # children are within _d[level] of data[ctr_idx]
+        # descendants are within _D[level]
+        # ctr_idx is one integer
+        def __init__(self, ctr_idx, level, radius):
+            self.ctr_idx = ctr_idx
+            self.level = level
+            self.radius = radius
+            self.children = []
 
         def __repr__(self):
-            return str(self)
+            return ("<_InnerNode: ctr_idx=%d, level=%d (radius=%f), "
+                    "len(children)=%d>" %
+                    (self.ctr_idx, self.level,
+                     self.radius, len(self.children)))
+        
+    class _LeafNode(_Node):
+        # idx is an array of integers
+        def __init__(self, idx, ctr_idx, radius):
+            self.idx = idx
+            self.ctr_idx = ctr_idx
+            self.radius = radius
 
-        def add_child(self, child, level):
-            """
-            Add a child to the node associated with p at level ``level``.
-            """
-            assert level <= self.highest_level
-            assert child.highest_parent == None
-            self.children[level].append(child)
-            child.highest_parent = self
-
-        def get_children(self, level):
-            """
-            Get the children of the node associated with p at level
-            ``level``.
-            """
-            assert level <= self.highest_level
-            retLst = [self]
-            if level in self.children:
-                retLst.extend(self.children[level])
-            return retLst
-
-        def get_only_children(self, level):
-            """Like get_children but does not return the node associated
-            with p at level ``level-1``."""
-            assert level <= self.highest_level
-            if level in self.children:
-                return self.children[level]
-            else:
-                return []
-
-        def remove_connections(self):
-            """
-            Remove the connection between the highest-level node associated
-            with p and that node's parent.
-            """
-            if self.highest_parent:
-                q = self.highest_parent
-                assert q.highest_level > self.highest_level
-                assert self.highest_level in q.children
-                assert self in q.children[self.level]
-                q.children[self.level].remove(self)
-                self.highest_parent = None
-
-        def first_level_with_children(self):
-            """Return the highest level at which a node associated with p
-            has children."""
-            try:
-                return max(self.children.iterkeys())
-            except ValueError:
-                return _LOWEST_LEVEL
-
-        def is_leaf_node(self, level):
-            """Returns True if the node associated with p at level ``level``
-            is a leaf node, i.e., it has no descendants other than nodes
-            also associated with p."""
-            assert level <= self.highest_level
-            for (other_level, children) in self.children.iteritems():
-                if other_level <= level and children:
-                    return False
-            else:
-                return True
+        def __repr__(self):
+            return('_LeafNode(idx=%s, ctr_idx=%d, radius=%f)' %
+                   (repr(self.idx), self.ctr_idx, self.radius))
+        
 
     def _build(self):
         """Build the cover tree using the Batch Construction algorithm
         from Beygelzimer, Kakade and Langford 2006."""
 
-        def split_with_dist(dmax, pts_p_ds):
+        child_d = self._child_d
+        heir_d = self._heir_d
+
+        def split_with_dist(dmax, Dmax, pts_p_ds):
             """Split the points in a list into a those closer than dmax to p
-            and those farther away.  Remove the far points from the original
-            list.
+            and those up to Dmax away.  Remove the far points from the
+            original list, preserve those closer than Dmax.
 
             Parameters
             ----------
             dmax : float
-                threshold distance
+                inner threshold distance
+            Dmax : float
+                outer threshold distance
             pts_p_ds : list of (idx, dp) tuples
                 A list of points (each with index idx) and their distance
                 dp to a point p
@@ -202,13 +204,15 @@ class CoverTree(object):
             Return
             ------
             near_p_ds : list of (idx, dp) tuples
-                List of points whose distance to p, dp, does not exceed dmax.
+                List of points whose distance to p, dp, satisfies
+                0 <= dp <= dmax
             far_p_ds : list of (idx, dp) tuples
-                List of points whose distance to p, dp, exceeds dmax.
+                List of points whose distance to p, dp, satisfies
+                dmax < dp <= Dmax
 
             Side effects
             ------------
-            The elements in pts_p_ds with dp > dmax are removed.
+            The elements in pts_p_ds with dp < Dmax are removed.
             """
             near_p_ds = []
             far_p_ds = []
@@ -218,7 +222,7 @@ class CoverTree(object):
                 idx, dp = pts_p_ds[i]
                 if dp <= dmax:
                     near_p_ds.append((idx, dp))
-                elif dp <= 2*dmax:
+                elif dp <= Dmax:
                     far_p_ds.append((idx, dp))
                 else:
                     pts_p_ds[new_pts_len] = pts_p_ds[i]
@@ -227,17 +231,19 @@ class CoverTree(object):
 
             return near_p_ds, far_p_ds
 
-        def split_without_dist(q_idx, dmax, pts_p_ds):
+        def split_without_dist(q_idx, dmax, Dmax, pts_p_ds):
             """Split the points in a list into a those closer than dmax to q
-            and those farther away.  Remove the far points from the original
-            list.
+            and, those up to Dmax away, and those beyond.  Remove the far
+            points from the original list, preserve those closer than Dmax.
 
             Parameters
             ----------
             q_idx : integer
                 index of reference point q
             dmax : float
-                threshold distance
+                inner threshold distance
+            Dmax : float
+                outer threshold distance
             pts_p_ds : list of (idx, dp) tuples
                 A list of points (each with index idx) and their distance
                 dp to an unspecified point p
@@ -245,13 +251,15 @@ class CoverTree(object):
             Return
             ------
             near_q_ds : list of (idx, dq) tuples
-                List of points whose distance to q, dq, does not exceed dmax.
+                List of points whose distance to q, dq, satisfies
+                0 <= dq <= dmax
             far_q_ds : list of (idx, dq) tuples
-                List of points whose distance to q, dq, exceeds dmax.
+                List of points whose distance to q, dq, satisfies
+                dmax < dq <= Dmax
 
             Side effects
             ------------
-            The elements in pts_p_ds with dq > dmax are removed.
+            The elements in pts_p_ds with dq < Dmax are removed.
             """
             near_q_ds = []
             far_q_ds = []
@@ -262,7 +270,7 @@ class CoverTree(object):
                 dq = self.distance(self.data[q_idx], self.data[idx])
                 if dq <= dmax:
                     near_q_ds.append((idx, dq))
-                elif dq <= 2*dmax:
+                elif dq <= Dmax:
                     far_q_ds.append((idx, dq))
                 else:
                     pts_p_ds[new_pts_len] = pts_p_ds[i]
@@ -271,180 +279,173 @@ class CoverTree(object):
 
             return near_q_ds, far_q_ds
 
-        def construct(p, near_p_ds, far_p_ds, i):
+        def construct(p_idx, near_p_ds, far_p_ds, i):
             """Main construction loop.
 
             Builds all of the descendants of the node associated with p at
             level i.  These include all of the points in near_p_ds, and may
             include some of the points in far_p_ds:
 
-               x in near_p_ds  <=>     0 <= d(p,x) <= 2**i
-               x in far_p_ds   <=>  2**i <  d(p,x) <  2**(i+1)
+               x in near_p_ds  <=>     0 <= d(p,x) <= d_i
+               x in far_p_ds   <=>   d_i <  d(p,x) <  d_(i+1)
             
             Returns those points in far_p_ds that were not descendants
             of the node associated with p at level i
             """
-            assert all(d <= 2**i for (k,d) in near_p_ds)
-            assert all(2**i < d <= 2**(i+1) for (k,d) in far_p_ds)
+            assert all(d <= child_d[i] for (k,d) in near_p_ds)
+            assert all(child_d[i] < d <= child_d[i+1] for (k,d) in far_p_ds)
             
-            if not near_p_ds:
-                return far_p_ds
+            if len(near_p_ds) + len(far_p_ds) <= self.leafsize:
+                idx = [ii for (ii, d) in itertools.chain(near_p_ds,
+                                                         far_p_ds)]
+                radius = max(d for (ii, d) in itertools.chain(near_p_ds,
+                                                              far_p_ds,
+                                                              [(0.0, None)]))
+                #print("Building level %d leaf node for p_idx=%d with %s"
+                #      % (i, p_idx, str(idx)))
+                node = CoverTree._LeafNode(idx, p_idx, radius)
+                return node, []
             else:
-                nearer_p_ds, not_so_near_p_ds = split_with_dist(2**(i-1),
-                                                                near_p_ds)
-                near_p_ds = construct(p, nearer_p_ds, not_so_near_p_ds, i-1)
-                
-                # near_p_ds now contains points near to p at level i, but
-                # not descendants of p at level i-1.
-                # Make new children of p at level i from each one until
-                # none remain
-                while near_p_ds:
-                    q_idx, _ = near_p_ds.pop()
-                    q = CoverTree._Node(q_idx, i-1)
-                    self.minlevel = min(i-1, self.minlevel)
+                # Remove points very near to p, and as many as possible of
+                # those that are just "near"
+                nearer_p_ds, so_so_near_p_ds = split_with_dist(
+                    child_d[i-1], child_d[i], near_p_ds)
+                p_im1, near_p_ds = construct(p_idx, nearer_p_ds,
+                                             so_so_near_p_ds, i-1)
 
-                    near_q_ds, far_q_ds = split_without_dist(
-                        q_idx, 2**(i-1), near_p_ds)
-                    near_q_ds2, far_q_ds2 = split_without_dist(
-                        q_idx, 2**(i-1), far_p_ds)
-                    near_q_ds.extend(near_q_ds2)
-                    far_q_ds.extend(far_q_ds2)
+                # If no near points remain, p_i would only have the
+                # trivial child p_im1.  Skip directly to p_im1 in the
+                # explicit representation
+                if not near_p_ds:
+                    #print("Passing though level %d child node %s up to level %d" %
+                    #      (i-1, str(p_im1), i))
+                    return p_im1, far_p_ds
+                else:
+                    # near_p_ds now contains points near to p at level i,
+                    # but not descendants of p at level i-1.
+                    #
+                    # Make new children of p at level i from each one until
+                    # none remain
+                    p_i = CoverTree._InnerNode(p_idx, i, heir_d[i])
+                    p_i.children += [p_im1]
+                    while near_p_ds:
+                        q_idx, _ = random.choice(near_p_ds)
 
-                    #assert not (set(i for (i,d) in near_q_ds) &
-                    #            set(i for (i,d) in far_q_ds))
-                    #assert not (set(i for (i,d) in near_q_ds+far_q_ds) &
-                    #            set(i for (i,d) in far_p_ds))
+                        near_q_ds, far_q_ds = split_without_dist(
+                            q_idx, child_d[i-1], child_d[i], near_p_ds)
+                        near_q_ds2, far_q_ds2 = split_without_dist(
+                            q_idx, child_d[i-1], child_d[i], far_p_ds)
+                        near_q_ds += near_q_ds2
+                        far_q_ds += far_q_ds2
+                        
+                        #assert not (set(i for (i,d) in near_q_ds) &
+                        #            set(i for (i,d) in far_q_ds))
+                        #assert not (set(i for (i,d) in near_q_ds+far_q_ds) &
+                        #            set(i for (i,d) in far_p_ds))
                     
-                    unused_q_ds = construct(q, near_q_ds, far_q_ds, i-1)
+                        q_im1, unused_q_ds = construct(
+                            q_idx, near_q_ds, far_q_ds, i-1)
+                        
+                        p_i.children += [q_im1]
+                        
+                        # TODO: Figure out an effective way of not having
+                        # to recalculate distances to p
+                        new_near_p_ds, new_far_p_ds = split_without_dist(
+                            p_idx, child_d[i], child_d[i+1], unused_q_ds)
+                        near_p_ds += new_near_p_ds
+                        far_p_ds += new_far_p_ds
 
-                    p.add_child(q, i) # q_(i-1) is a child of p_i
-
-                    # TODO: Figure out an effective way of not having
-                    # to recalculate distances to p
-                    new_near_p_ds, new_far_p_ds = split_without_dist(
-                        p.idx, 2**i, unused_q_ds)
-                    near_p_ds.extend(new_near_p_ds)
-                    far_p_ds.extend(new_far_p_ds)
-
-                return far_p_ds
+                    #print("Creating level %d inner node with %d children, "
+                    #      "remaining points = %s" %
+                    #      (i, len(p_i.children), str(far_p_ds)))
+                    return p_i, far_p_ds
 
         if self.n == 0:
-            self.root = None
-            self.maxlevel = self.minlevel = 0
+            self.root = CoverTree._LeafNode(idx=[], ctr_idx=-1, radius=0)
         else:
             # Maximum distance between any two points can't exceed twice the
-            # distance between the first point and any other point due to
+            # distance between some fixed point and any other point due to
             # the triangle inequality
-            near_p_ds = [(j, self.distance(self.data[0], self.data[j]))
-                         for j in np.arange(1, self.n)]
+            p_idx = random.randrange(self.n)
+            near_p_ds = [(j, self.distance(self.data[p_idx], self.data[j]))
+                         for j in np.arange(self.n)]
             far_p_ds = []
             try:
                 maxdist = 2 * max(near_p_ds, key=operator.itemgetter(1))[1]
             except ValueError:
                 maxdist = 1
-            
-            self.maxlevel = int(math.ceil(math.log(maxdist, 2)))+1
-            self.minlevel = self.maxlevel
 
-            # The slightly strange syntax for "0" here ensures that the
-            # type of node.idx is as numpy.int* for all nodes, including
-            # the root node
-            p = CoverTree._Node(np.int_(0), self.maxlevel)
-            unused_p_ds = construct(p, near_p_ds, far_p_ds, self.maxlevel)
+            # We'll place p at a level such that all other points
+            # are "near" p, in the sense of construct() above
+            maxlevel = 0
+            while maxdist > child_d[maxlevel]:
+                maxlevel += 1
+
+            self.root, unused_p_ds = construct(p_idx, near_p_ds,
+                                               far_p_ds, maxlevel)
             assert not unused_p_ds
-            self.root = p
 
-    def _get_children_dist(self, p, Q_p_ds, level):
-        """Get the children of cover set Q at level ``level`` and the
-        distances of them with point p.
-
-        Parameters
-        ----------
-        p : array-like, shape pt_shape
-            reference point p to measure distances
-        Q_p_ds : list of (q, d(p,q)) tuples
-            a list of all points in Q and their distance to p
-        level : integer
-            the level of the nodes in Q_p_ds
-        
-        Returns
-        -------
-        The children of Q and their distances to p.
-        """
-        
-        # TODO: do this operation in place
-
-        children = list(itertools.chain.from_iterable
-                        (n.get_only_children(level) for n, _ in Q_p_ds))
-
-        return Q_p_ds + list((q, self.distance(p, self.data[q.idx]))
-                             for q in children)
-        
-
-    def _raw_query(self, p, bound):
-        # The function bound(A), defined for a set of points p in A, receives
-        # a list of tuples (q,d(p,q)) and returns a distance bound used to
-        # cut off a nearest-neighbour search.  It should be a monotonic
-        # function, i.e. bound(A) <= bound(B) whenever A is a superset of B
-        #
-        # __query returns a list of tuples Q = [(q,d(p,q))] of all points
-        # satisfying d(p,q) <= bound(S), where S is the set of all points
-        # in the cover tree.
-
-        if self.root == None:
+    def _query(self, p, k=1, eps=0, distance_upper_bound=np.inf):
+        if not self.root:
             return []
 
-        Qi_p_ds = [(self.root, self.distance(p, self.data[self.root.idx]))]
-        for i in xrange(self.maxlevel,self.minlevel-1,-1):
-            # (a) Consider the set of children of Q_i
-            #     [calculate their distances to x at the same time]
-            Q_p_ds = self._get_children_dist(p, Qi_p_ds, i)
-
-            # Refine bound
-            d_p_Q = bound(Q_p_ds)
-
-            # (b) Form next cover set
-            # In-place filter trick from stackoverflow
-            # (http://stackoverflow.com/questions/18418/elegant-way-to-remove-items-from-sequence-in-python)
-            Qi_p_ds[:] = ((q, d) for q, d in Q_p_ds if d <= d_p_Q + 2**i)
-
-        return Qi_p_ds
+        dist_to_ctr = self.distance(p, self.data[self.root.ctr_idx])
+        min_distance = max(0.0, dist_to_ctr - self.root.radius)
         
-    def _query(self, p, k=1, eps=0, distance_upper_bound=np.inf):
-        """Single-point query (internal)"""
-        if eps != 0:
-            raise NotImplementedError
+        # priority queue for chasing nodes
+        # entries are:
+        #  minimum distance between the node area and the target
+        #  distance between node center and target
+        #  the node
+        q = [(min_distance,
+              dist_to_ctr,
+              self.root)]
+        # priority queue for the nearest neighbors
+        # furthest known neighbor first
+        # entries are (-distance, i)
+        neighbors = []
 
-        if k is None:
-            def bound(Q_p_ds):
-                return distance_upper_bound
-        elif k == 1:
-            def bound(Q_p_ds):
-                try:
-                    return min(distance_upper_bound,
-                               min(Q_p_ds, key=operator.itemgetter(1))[1])
-                except ValueError:
-                    return distance_upper_bound
+        if eps==0:
+            epsfac=1
         else:
-            def bound(Q_p_ds):
-                ksmallest = heapq.nsmallest(
-                    k, ((q,d) for (q,d) in Q_p_ds if d <= distance_upper_bound),
-                    key=operator.itemgetter(1))
-                if ksmallest:
-                    return ksmallest[-1][1]
-                else:
-                    return distance_upper_bound
-
-        raw_result = [(d,q.idx) for (q,d) in self._raw_query(p, bound)
-                      if d <= distance_upper_bound]
-        if k:
-            result = heapq.nsmallest(k, raw_result,
-                                     key=operator.itemgetter(0))
-        else:
-            result = sorted(raw_result, key=operator.itemgetter(0))
-        return result
+            epsfac = 1/(1+eps)
         
+        while q:
+            min_distance, dist_to_ctr, node = heappop(q)
+            if isinstance(node, CoverTree._LeafNode):
+                # brute-force
+                for i in node.idx:
+                    if i == node.ctr_idx:
+                        d = dist_to_ctr
+                    else:
+                        d = self.distance(p, self.data[i])
+                    if d <= distance_upper_bound:
+                        if len(neighbors) == k:
+                            heappop(neighbors)
+                        heappush(neighbors, (-d, i))
+                        if len(neighbors) == k:
+                            distance_upper_bound = -neighbors[0][0]
+            else:
+                # we don't push nodes that are too far onto the queue at
+                # all, but since the distance_upper_bound decreases, we
+                # might get here even if the cell's too far
+                if min_distance > distance_upper_bound*epsfac:
+                    # since this is the nearest node, we're done, bail out
+                    break
 
+                for child in node.children:
+                    if child.ctr_idx == node.ctr_idx:
+                        d = dist_to_ctr
+                    else:
+                        d = self.distance(p, self.data[child.ctr_idx])
+                    min_distance = max(0.0, d - child.radius)
+                    
+                    # child might be too far, if so, don't bother pushing it
+                    if min_distance <= distance_upper_bound*epsfac:
+                        heappush(q, (min_distance, d, child))
+
+        return sorted([(-d,i) for (d,i) in neighbors])
+    
     def query(self, x, k=1, eps=0, distance_upper_bound=np.inf):
         """
         Query the cover tree for nearest neighbors
@@ -616,7 +617,7 @@ class CoverTree(object):
         Returns
         -------
         results : set
-            set of pairs (i,j), i<j, for which the corresponing positions
+            set of pairs (i,j), i<j, for which the corresponding positions
             are close.
         """
         raise NotImplementedError
