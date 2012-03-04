@@ -81,7 +81,7 @@ class test_random(ConsistencyTests):
         self.m = 4
         self.data = np.random.randn(self.n, self.m)
         self.distance = euclidean
-        self.covertree = CoverTree(self.data, self.distance)#leafsize=2)
+        self.covertree = CoverTree(self.data, self.distance, leafsize=2)
         self.x = np.random.randn(self.m)
         self.d = 0.2
         self.k = 10
@@ -119,11 +119,11 @@ class test_small(ConsistencyTests):
                 self.covertree.query((0,0,0.1), 2),
                 ([0.1,0.9],[0,1]))
         
-#class test_small_nonleaf(test_small):
-#    def setUp(self):
-#        test_small.setUp(self)
-#        self.covertree = KDTree(self.data,leafsize=1)
-#
+class test_small_nonleaf(test_small):
+    def setUp(self):
+        test_small.setUp(self)
+        self.covertree = CoverTree(self.data,self.distance,leafsize=1)
+
 #class test_small_compiled(test_small):
 #    def setUp(self):
 #        test_small.setUp(self)
@@ -265,7 +265,7 @@ class test_random_ball(ball_consistency):
         m = 4
         self.data = np.random.randn(n,m)
         self.distance = distance
-        self.T = CoverTree(self.data,self.distance)#,leafsize=2)
+        self.T = CoverTree(self.data,self.distance,leafsize=2)
         self.x = np.random.randn(m)
         self.eps = 0
         self.d = 0.2
@@ -327,9 +327,9 @@ class test_two_random_trees(two_trees_consistency):
         m = 4
         self.data1 = np.random.randn(n,m)
         self.distance = distance
-        self.T1 = CoverTree(self.data1,self.distance)#leafsize=2)
+        self.T1 = CoverTree(self.data1,self.distance,leafsize=2)
         self.data2 = np.random.randn(n,m)
-        self.T2 = CoverTree(self.data2,self.distance)#leafsize=2)
+        self.T2 = CoverTree(self.data2,self.distance,leafsize=2)
         self.eps = 0
         self.d = 0.2
 
@@ -361,8 +361,8 @@ class test_count_neighbors:
     def setUp(self):
         n = 50
         m = 2
-        self.T1 = CoverTree(np.random.randn(n,m),distance=euclidean)#leafsize=2)
-        self.T2 = CoverTree(np.random.randn(n,m),distance=euclidean)#,leafsize=2)
+        self.T1 = CoverTree(np.random.randn(n,m),distance=euclidean,leafsize=2)
+        self.T2 = CoverTree(np.random.randn(n,m),distance=euclidean,leafsize=2)
 
     def test_one_radius(self):
         r = 0.2
@@ -386,8 +386,8 @@ class test_sparse_distance_matrix:
         n = 50
         m = 4
         self.distance = euclidean
-        self.T1 = CoverTree(np.random.randn(n,m),self.distance)#,leafsize=2)
-        self.T2 = CoverTree(np.random.randn(n,m),self.distance)#,leafsize=2)
+        self.T1 = CoverTree(np.random.randn(n,m),self.distance,leafsize=2)
+        self.T2 = CoverTree(np.random.randn(n,m),self.distance,leafsize=2)
         self.r = 0.3
 
     def test_consistency_with_neighbors(self):
