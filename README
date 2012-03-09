@@ -1,0 +1,16 @@
+This is a Python implementation of cover trees, a data structure for finding
+nearest neighbors in a general metric space (e.g., a 3D box with periodic
+boundary conditions).
+
+Cover trees are described in two papers hosted here:
+
+http://hunch.net/~jl/projects/cover_tree/cover_tree.html
+
+The implementation here owes a great deal to PyCoverTree, by Thomas Kollar,
+Nil Geisweiller, Emanuele Olivetti, which can be found here:
+
+http://github.com/emanuele/PyCoverTree
+
+The API follows that of Anne M. Archibald's KD-tree implementation for scipy
+(scipy.spatial.kdtree).  Other than specifying a distance function in the
+constructor, this module can be used as a drop-in replacement for kdtree.
