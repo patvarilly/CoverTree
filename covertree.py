@@ -295,8 +295,8 @@ class CoverTree(object):
             Returns those points in far_p_ds that were not descendants
             of the node associated with p at level i
             """
-            assert all(d <= child_d[i] for (k, d) in near_p_ds)
-            assert all(child_d[i] < d <= child_d[i + 1] for (k, d) in far_p_ds)
+            #assert all(d <= child_d[i] for (k, d) in near_p_ds)
+            #assert all(child_d[i] < d <= child_d[i + 1] for (k, d) in far_p_ds)
 
             if len(near_p_ds) + len(far_p_ds) <= self.leafsize:
                 idx = [ii for (ii, d) in itertools.chain(near_p_ds,
@@ -386,7 +386,7 @@ class CoverTree(object):
 
             self.root, unused_p_ds = construct(p_idx, near_p_ds,
                                                far_p_ds, maxlevel)
-            assert not unused_p_ds
+            #assert not unused_p_ds
 
     def _query(self, p, k=1, eps=0, distance_upper_bound=np.inf):
         if not self.root:
