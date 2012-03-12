@@ -296,7 +296,8 @@ class CoverTree(object):
             of the node associated with p at level i
             """
             #assert all(d <= child_d[i] for (k, d) in near_p_ds)
-            #assert all(child_d[i] < d <= child_d[i + 1] for (k, d) in far_p_ds)
+            #assert all(child_d[i] < d <= child_d[i + 1]
+            #           for (k, d) in far_p_ds)
 
             if len(near_p_ds) + len(far_p_ds) <= self.leafsize:
                 idx = [ii for (ii, d) in itertools.chain(near_p_ds,
@@ -387,6 +388,50 @@ class CoverTree(object):
             self.root, unused_p_ds = construct(p_idx, near_p_ds,
                                                far_p_ds, maxlevel)
             #assert not unused_p_ds
+            #assert self._check()
+
+    def _check(self):
+        def check_node(node):
+            if isinstance(node, CoverTree._LeafNode):
+                assert all(self.distance(self.data[node.ctr_idx],
+                                         self.data[idx]) <= node.radius
+                           for idx in node.idx)
+            else:
+                assert node.radius == self._heir_d[node.level]
+                assert any(child.ctr_idx == node.ctr_idx
+                           for child in node.children)
+                for child in node.children:
+                    d_n_c = self.distance(self.data[node.ctr_idx],
+                                          self.data[child.ctr_idx])
+                    assert d_n_c <= self._child_d[node.level]
+                    if isinstance(child, CoverTree._LeafNode):
+                        assert (child.radius + d_n_c) <= node.radius
+                    check_node(child)
+
+        check_node(self.root)
+
+        def enum_leaves(node):
+            if isinstance(node, CoverTree._LeafNode):
+                return node.idx
+            else:
+                return list(itertools.chain.from_iterable(
+                        enum_leaves(child)
+                        for child in node.children))
+
+        assert sorted(enum_leaves(self.root)) == range(self.data.shape[0])
+
+        return True
+
+    def _print(self):
+        def print_node(node, indent):
+            if isinstance(node, CoverTree._LeafNode):
+                print "-" * indent, node
+            else:
+                print "-" * indent, node
+                for child in node.children:
+                    print_node(child, indent + 1)
+
+        print_node(self.root, 0)
 
     def _query(self, p, k=1, eps=0, distance_upper_bound=np.inf):
         if not self.root:
