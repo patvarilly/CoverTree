@@ -693,7 +693,7 @@ class CoverTree(object):
                         traverse_no_checking(node1, child2)
             else:
                 for child1 in node1.children:
-                    traverse_checking(child1, node2)
+                    traverse_no_checking(child1, node2)
 
         traverse_checking(self.root, other.root)
         return results
