@@ -3,7 +3,7 @@
 #
 # Based on PyCoverTree (http://github.com/emanuele/PyCoverTree), as
 # modified by Emanuele Olivetti, license as follows:
-# 
+#
 # File: covertree.py
 # Date of creation: 05/04/07
 # Copyright (c) 2007, Thomas Kollar <tkollar@csail.mit.edu>
@@ -14,7 +14,7 @@
 # more information please refer to the technical report entitled "Fast
 # Nearest Neighbors" by Thomas Kollar or to "Cover Trees for Nearest
 # Neighbor" by John Langford, Sham Kakade and Alina Beygelzimer
-#  
+#
 # If you use this code in your research, kindly refer to the technical
 # report.
 
@@ -34,6 +34,7 @@ import random
 import scipy.sparse
 
 __all__ = ['CoverTree', 'distance_matrix']
+
 
 class CoverTree(object):
     """
@@ -61,7 +62,7 @@ class CoverTree(object):
         def __init__(self, base, *a, **kw):
             dict.__init__(self, *a, **kw)
             self.b = base
-            
+
         def __missing__(self, i):
             self[i] = value = self.b ** i
             return value
@@ -70,9 +71,9 @@ class CoverTree(object):
         def __init__(self, base, *a, **kw):
             dict.__init__(self, *a, **kw)
             self.b = base
-            
+
         def __missing__(self, i):
-            self[i] = value = self.b ** (i+1) / (self.b - 1)
+            self[i] = value = self.b ** (i + 1) / (self.b - 1)
             return value
 
     def __init__(self, data, distance, leafsize=10, base=2):
@@ -107,7 +108,7 @@ class CoverTree(object):
 
         Two 3D points in a CoverTree using squared Euclidean distance
         as a metric
-        
+
         >>> data = np.array([[0,0,0], [1.5,2.3,4.7]])
         >>> ct = CoverTree(data, scipy.spatial.distance.euclidean)
 
@@ -168,7 +169,7 @@ class CoverTree(object):
                     "len(children)=%d, num_children=%d>" %
                     (self.ctr_idx, self.level,
                      self.radius, len(self.children), self.num_children))
-        
+
     class _LeafNode(_Node):
         # idx is an array of integers
         def __init__(self, idx, ctr_idx, radius):
@@ -180,7 +181,6 @@ class CoverTree(object):
         def __repr__(self):
             return('_LeafNode(idx=%s, ctr_idx=%d, radius=%f)' %
                    (repr(self.idx), self.ctr_idx, self.radius))
-        
 
     def _build(self):
         """Build the cover tree using the Batch Construction algorithm
@@ -291,13 +291,13 @@ class CoverTree(object):
 
                x in near_p_ds  <=>     0 <= d(p,x) <= d_i
                x in far_p_ds   <=>   d_i <  d(p,x) <  d_(i+1)
-            
+
             Returns those points in far_p_ds that were not descendants
             of the node associated with p at level i
             """
-            assert all(d <= child_d[i] for (k,d) in near_p_ds)
-            assert all(child_d[i] < d <= child_d[i+1] for (k,d) in far_p_ds)
-            
+            assert all(d <= child_d[i] for (k, d) in near_p_ds)
+            assert all(child_d[i] < d <= child_d[i + 1] for (k, d) in far_p_ds)
+
             if len(near_p_ds) + len(far_p_ds) <= self.leafsize:
                 idx = [ii for (ii, d) in itertools.chain(near_p_ds,
                                                          far_p_ds)]
@@ -312,16 +312,16 @@ class CoverTree(object):
                 # Remove points very near to p, and as many as possible of
                 # those that are just "near"
                 nearer_p_ds, so_so_near_p_ds = split_with_dist(
-                    child_d[i-1], child_d[i], near_p_ds)
+                    child_d[i - 1], child_d[i], near_p_ds)
                 p_im1, near_p_ds = construct(p_idx, nearer_p_ds,
-                                             so_so_near_p_ds, i-1)
+                                             so_so_near_p_ds, i - 1)
 
                 # If no near points remain, p_i would only have the
                 # trivial child p_im1.  Skip directly to p_im1 in the
                 # explicit representation
                 if not near_p_ds:
-                    #print("Passing though level %d child node %s up to level %d" %
-                    #      (i-1, str(p_im1), i))
+                    #print("Passing though level %d child node %s "
+                    #      "up to level %d" % (i - 1, str(p_im1), i))
                     return p_im1, far_p_ds
                 else:
                     # near_p_ds now contains points near to p at level i,
@@ -334,26 +334,26 @@ class CoverTree(object):
                         q_idx, _ = random.choice(near_p_ds)
 
                         near_q_ds, far_q_ds = split_without_dist(
-                            q_idx, child_d[i-1], child_d[i], near_p_ds)
+                            q_idx, child_d[i - 1], child_d[i], near_p_ds)
                         near_q_ds2, far_q_ds2 = split_without_dist(
-                            q_idx, child_d[i-1], child_d[i], far_p_ds)
+                            q_idx, child_d[i - 1], child_d[i], far_p_ds)
                         near_q_ds += near_q_ds2
                         far_q_ds += far_q_ds2
-                        
+
                         #assert not (set(i for (i,d) in near_q_ds) &
                         #            set(i for (i,d) in far_q_ds))
                         #assert not (set(i for (i,d) in near_q_ds+far_q_ds) &
                         #            set(i for (i,d) in far_p_ds))
-                    
+
                         q_im1, unused_q_ds = construct(
-                            q_idx, near_q_ds, far_q_ds, i-1)
-                        
+                            q_idx, near_q_ds, far_q_ds, i - 1)
+
                         children.append(q_im1)
-                        
+
                         # TODO: Figure out an effective way of not having
                         # to recalculate distances to p
                         new_near_p_ds, new_far_p_ds = split_without_dist(
-                            p_idx, child_d[i], child_d[i+1], unused_q_ds)
+                            p_idx, child_d[i], child_d[i + 1], unused_q_ds)
                         near_p_ds += new_near_p_ds
                         far_p_ds += new_far_p_ds
 
@@ -394,7 +394,7 @@ class CoverTree(object):
 
         dist_to_ctr = self.distance(p, self.data[self.root.ctr_idx])
         min_distance = max(0.0, dist_to_ctr - self.root.radius)
-        
+
         # priority queue for chasing nodes
         # entries are:
         #  minimum distance between the node area and the target
@@ -408,11 +408,11 @@ class CoverTree(object):
         # entries are (-distance, i)
         neighbors = []
 
-        if eps==0:
-            epsfac=1
+        if eps == 0:
+            epsfac = 1
         else:
-            epsfac = 1/(1+eps)
-        
+            epsfac = 1 / (1 + eps)
+
         while q:
             min_distance, dist_to_ctr, node = heappop(q)
             if isinstance(node, CoverTree._LeafNode):
@@ -432,7 +432,7 @@ class CoverTree(object):
                 # we don't push nodes that are too far onto the queue at
                 # all, but since the distance_upper_bound decreases, we
                 # might get here even if the cell's too far
-                if min_distance > distance_upper_bound*epsfac:
+                if min_distance > distance_upper_bound * epsfac:
                     # since this is the nearest node, we're done, bail out
                     break
 
@@ -442,13 +442,13 @@ class CoverTree(object):
                     else:
                         d = self.distance(p, self.data[child.ctr_idx])
                     min_distance = max(0.0, d - child.radius)
-                    
+
                     # child might be too far, if so, don't bother pushing it
-                    if min_distance <= distance_upper_bound*epsfac:
+                    if min_distance <= distance_upper_bound * epsfac:
                         heappush(q, (min_distance, d, child))
 
-        return sorted([(-d,i) for (d,i) in neighbors])
-    
+        return sorted([(-d, i) for (d, i) in neighbors])
+
     def query(self, x, k=1, eps=0, distance_upper_bound=np.inf):
         """
         Query the cover tree for nearest neighbors
@@ -508,42 +508,49 @@ class CoverTree(object):
                 ii = np.empty(retshape, dtype=np.int)
                 ii.fill(self.n)
             else:
-                raise ValueError("Requested %s nearest neighbors; acceptable numbers are integers greater than or equal to one, or None")
+                raise ValueError("Requested %s nearest neighbors; "
+                                 "acceptable numbers are integers greater "
+                                 "than or equal to one, or None")
             for c in np.ndindex(retshape):
-                hits = self._query(x[c], k=k, eps=eps, distance_upper_bound=distance_upper_bound)
+                hits = self._query(
+                    x[c], k=k, eps=eps,
+                    distance_upper_bound=distance_upper_bound)
                 if k is None:
-                    dd[c] = [d for (d,i) in hits]
-                    ii[c] = [i for (d,i) in hits]
-                elif k>1:
+                    dd[c] = [d for (d, i) in hits]
+                    ii[c] = [i for (d, i) in hits]
+                elif k > 1:
                     for j in range(len(hits)):
-                        dd[c+(j,)], ii[c+(j,)] = hits[j]
-                elif k==1:
-                    if len(hits)>0:
+                        dd[c + (j,)], ii[c + (j,)] = hits[j]
+                elif k == 1:
+                    if len(hits) > 0:
                         dd[c], ii[c] = hits[0]
                     else:
                         dd[c] = np.inf
                         ii[c] = self.n
             return dd, ii
         else:
-            hits = self._query(x, k=k, eps=eps, distance_upper_bound=distance_upper_bound)
+            hits = self._query(x, k=k, eps=eps,
+                               distance_upper_bound=distance_upper_bound)
             if k is None:
-                return [d for (d,i) in hits], [i for (d,i) in hits]
-            elif k==1:
-                if len(hits)>0:
+                return [d for (d, i) in hits], [i for (d, i) in hits]
+            elif k == 1:
+                if len(hits) > 0:
                     return hits[0]
                 else:
                     return np.inf, self.n
-            elif k>1:
-                dd = np.empty(k,dtype=np.float)
+            elif k > 1:
+                dd = np.empty(k, dtype=np.float)
                 dd.fill(np.inf)
-                ii = np.empty(k,dtype=np.int)
+                ii = np.empty(k, dtype=np.int)
                 ii.fill(self.n)
                 for j in range(len(hits)):
                     dd[j], ii[j] = hits[j]
                 return dd, ii
             else:
-                raise ValueError("Requested %s nearest neighbors; acceptable numbers are integers greater than or equal to one, or None")
-    
+                raise ValueError("Requested %s nearest neighbors; "
+                                 "acceptable numbers are integers greater "
+                                 "than or equal to one, or None")
+
     def _query_ball_point(self, x, r, eps=0):
         def traverse_checking(node):
             d_x_node = self.distance(x, self.data[node.ctr_idx])
@@ -599,7 +606,7 @@ class CoverTree(object):
         If you have many points whose neighbors you want to find, you may
         save substantial amounts of time by putting them in a CoverTree and
         using query_ball_tree.
-        
+
         """
         x = np.asarray(x)
         if self.pt_shape and x.shape[-len(self.pt_shape):] != self.pt_shape:
@@ -607,7 +614,7 @@ class CoverTree(object):
                              "CoverTree with points of shape %s" %
                              (x.shape[-len(self.pt_shape):],
                               self.pt_shape))
-                             
+
         if len(x.shape) == 1:
             return self._query_ball_point(x, r, eps)
         else:
@@ -619,7 +626,7 @@ class CoverTree(object):
             for c in np.ndindex(retshape):
                 result[c] = self._query_ball_point(x[c], r, eps=eps)
             return result
-    
+
     def query_ball_tree(self, other, r, eps=0):
         """
         Find all pairs of points whose distance is at most r
@@ -643,15 +650,17 @@ class CoverTree(object):
             For each element self.data[i] of this tree, results[i] is a list
             of the indices of its neighbors in other.data.
         """
+
         results = [[] for i in range(self.n)]
+
         def traverse_checking(node1, node2):
             d = self.distance(self.data[node1.ctr_idx],
                               other.data[node2.ctr_idx])
             min_distance = max(0.0, d - node1.radius - node2.radius)
             max_distance = d + node1.radius + node2.radius
-            if min_distance > r/(1.+eps):
+            if min_distance > r / (1. + eps):
                 return
-            elif max_distance < r*(1.+eps):
+            elif max_distance < r * (1. + eps):
                 traverse_no_checking(node1, node2)
             elif isinstance(node1, CoverTree._LeafNode):
                 if isinstance(node2, CoverTree._LeafNode):
@@ -709,20 +718,23 @@ class CoverTree(object):
             set of pairs (i,j), i<j, for which the corresponding positions
             are close.
         """
+
         results = set()
         visited = set()
+
         def test_set_visited(node1, node2):
-            i, j = sorted((id(node1),id(node2)))
-            if (i,j) in visited:
+            i, j = sorted((id(node1), id(node2)))
+            if (i, j) in visited:
                 return True
             else:
-                visited.add((i,j))
+                visited.add((i, j))
                 return False
+
         def traverse_checking(node1, node2):
             if test_set_visited(node1, node2):
                 return
 
-            if id(node2)<id(node1):
+            if id(node2) < id(node1):
                 # This node pair will be visited in the other order
                 #return
                 pass
@@ -733,9 +745,9 @@ class CoverTree(object):
                         for j in node2.idx:
                             if self.distance(self.data[i], self.data[j]) <= r:
                                 if i < j:
-                                    results.add((i,j))
+                                    results.add((i, j))
                                 elif j < i:
-                                    results.add((j,i))
+                                    results.add((j, i))
                 else:
                     for child2 in node2.children:
                         traverse_checking(node1, child2)
@@ -747,9 +759,9 @@ class CoverTree(object):
                                       self.data[node2.ctr_idx])
                 min_distance = d_1_2 - node1.radius - node2.radius
                 max_distance = d_1_2 + node1.radius + node2.radius
-                if min_distance > r/(1.+eps):
+                if min_distance > r / (1. + eps):
                     return
-                elif max_distance < r*(1.+eps):
+                elif max_distance < r * (1. + eps):
                     for child1 in node1.children:
                         traverse_no_checking(child1, node2)
                 else:
@@ -765,7 +777,7 @@ class CoverTree(object):
             if test_set_visited(node1, node2):
                 return
 
-            if id(node2)<id(node1):
+            if id(node2) < id(node1):
                 # This node pair will be visited in the other order
                 #return
                 pass
@@ -773,10 +785,10 @@ class CoverTree(object):
                 if isinstance(node2, CoverTree._LeafNode):
                     for i in node1.idx:
                         for j in node2.idx:
-                            if i<j:
-                                results.add((i,j))
-                            elif j<i:
-                                results.add((j,i))
+                            if i < j:
+                                results.add((i, j))
+                            elif j < i:
+                                results.add((j, i))
                 else:
                     for child2 in node2.children:
                         traverse_no_checking(node1, child2)
@@ -786,7 +798,7 @@ class CoverTree(object):
 
         traverse_checking(self.root, self.root)
         return results
-    
+
     def count_neighbors(self, other, r):
         """
         Count how many nearby pairs can be formed.
@@ -821,11 +833,11 @@ class CoverTree(object):
             c_greater = r[idx] > max_r
             result[idx[c_greater]] += node1.num_children * node2.num_children
             idx = idx[(min_r <= r[idx]) & (r[idx] <= max_r)]
-            if len(idx)==0:
+            if len(idx) == 0:
                 return
 
-            if isinstance(node1,CoverTree._LeafNode):
-                if isinstance(node2,CoverTree._LeafNode):
+            if isinstance(node1, CoverTree._LeafNode):
+                if isinstance(node2, CoverTree._LeafNode):
                     ds = [self.distance(self.data[i], other.data[j])
                           for i in node1.idx
                           for j in node2.idx]
@@ -848,17 +860,18 @@ class CoverTree(object):
 
         if np.shape(r) == ():
             r = np.array([r])
-            result = np.zeros(1,dtype=int)
+            result = np.zeros(1, dtype=int)
             traverse(self.root, other.root, np.arange(1))
             return result[0]
-        elif len(np.shape(r))==1:
+        elif len(np.shape(r)) == 1:
             r = np.asarray(r)
             n, = r.shape
-            result = np.zeros(n,dtype=int)
+            result = np.zeros(n, dtype=int)
             traverse(self.root, other.root, np.arange(n))
             return result
         else:
-            raise ValueError("r must be either a single value or a one-dimensional array of values")
+            raise ValueError("r must be either a single value or "
+                             "a one-dimensional array of values")
 
     def sparse_distance_matrix(self, other, max_distance):
         """
@@ -880,8 +893,8 @@ class CoverTree(object):
             Sparse matrix representing the results in "dictionary of keys"
             format.
         """
-        result = scipy.sparse.dok_matrix((self.n,other.n))
-        
+        result = scipy.sparse.dok_matrix((self.n, other.n))
+
         def traverse(node1, node2):
             d_1_2 = self.distance(self.data[node1.ctr_idx],
                                   other.data[node2.ctr_idx])
@@ -895,7 +908,7 @@ class CoverTree(object):
                             d = self.distance(self.data[i],
                                               other.data[j])
                             if d <= max_distance:
-                                result[i,j] = d
+                                result[i, j] = d
                 else:
                     for child2 in node2.children:
                         traverse(node1, child2)
@@ -910,12 +923,13 @@ class CoverTree(object):
                 else:
                     for child2 in node2.children:
                         traverse(node1, child2)
-                
+
         traverse(self.root, other.root)
 
         return result
 
-def distance_matrix(x,y,distance):
+
+def distance_matrix(x, y, distance):
     """
     Compute the distance matrix.
 
@@ -947,7 +961,7 @@ def distance_matrix(x,y,distance):
                          "vectors of shape %s"
                          % (str(pt_shape_x), str(pt_shape_y)))
 
-    result = np.empty((m,n),dtype=np.float)
-    for i,j in np.ndindex((m,n)):
-        result[i,j] = distance(x[i],y[j])
+    result = np.empty((m, n), dtype=np.float)
+    for i, j in np.ndindex((m, n)):
+        result[i, j] = distance(x[i], y[j])
     return result
