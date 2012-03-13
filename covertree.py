@@ -697,22 +697,25 @@ class CoverTree(object):
         """
 
         results = [[] for i in range(self.n)]
+        real_min_r = r / (1. + eps)
+        real_max_r = r * (1. + eps)
 
         def traverse_checking(node1, node2):
             d = self.distance(self.data[node1.ctr_idx],
                               other.data[node2.ctr_idx])
-            min_distance = max(0.0, d - node1.radius - node2.radius)
+            min_distance = d - node1.radius - node2.radius
             max_distance = d + node1.radius + node2.radius
-            if min_distance > r / (1. + eps):
+            if min_distance > real_min_r:
                 return
-            elif max_distance < r * (1. + eps):
+            elif max_distance < real_max_r:
                 traverse_no_checking(node1, node2)
             elif isinstance(node1, CoverTree._LeafNode):
                 if isinstance(node2, CoverTree._LeafNode):
                     for i in node1.idx:
-                        results[i] += list(
-                            j for j in node2.idx
-                            if self.distance(other.data[j], self.data[i]) <= r)
+                        for j in node2.idx:
+                            if self.distance(self.data[i],
+                                             other.data[j]) <= r:
+                                results[i].append(j)
                 else:
                     for child2 in node2.children:
                         traverse_checking(node1, child2)
